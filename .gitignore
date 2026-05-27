@@ -1,0 +1,6 @@
+# Local source — NEVER commit. Contains Ophil's phone number.
+game.html
+
+# Editor / OS noise
+.DS_Store
+*.swp

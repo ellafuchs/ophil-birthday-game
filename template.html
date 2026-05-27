@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>🎂 A Birthday Surprise</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: linear-gradient(180deg, #1a0033 0%, #4b0082 60%, #8a2be2 100%);
+    font-family: 'Comic Sans MS', 'Trebuchet MS', sans-serif;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gate {
+    text-align: center;
+    padding: 40px 30px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 3px solid #ff69b4;
+    border-radius: 20px;
+    box-shadow: 0 0 40px rgba(255, 105, 180, 0.5);
+    max-width: 420px;
+    width: 90%;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 38px;
+    background: linear-gradient(90deg, #ff69b4, #ffd700, #ff69b4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: pulse 1.8s infinite;
+  }
+  p { font-size: 17px; margin: 6px 0 20px; opacity: 0.9; }
+  input {
+    width: 100%; box-sizing: border-box;
+    padding: 14px 16px;
+    font-size: 18px;
+    border-radius: 10px;
+    border: 2px solid #ff69b4;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    font-family: inherit;
+    text-align: center;
+    margin-bottom: 12px;
+  }
+  input::placeholder { color: rgba(255, 255, 255, 0.5); }
+  input:focus { outline: none; border-color: #ffd700; box-shadow: 0 0 12px #ffd700; }
+  button {
+    width: 100%;
+    padding: 14px;
+    font-size: 18px;
+    font-weight: bold;
+    background: #ff69b4;
+    border: 2px solid #fff;
+    border-radius: 10px;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 0 14px rgba(255, 105, 180, 0.6);
+  }
+  button:hover { background: #ff85c2; }
+  .err {
+    margin-top: 14px;
+    color: #ffb3b3;
+    font-size: 15px;
+    min-height: 20px;
+  }
+  .hint { margin-top: 16px; font-size: 13px; opacity: 0.6; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+</style>
+</head>
+<body>
+<div class="gate">
+  <h1>🎂 A Surprise 🎉</h1>
+  <p>Enter the password to unwrap your gift</p>
+  <form id="form" autocomplete="off">
+    <input type="password" id="pw" placeholder="Password" autofocus>
+    <button type="submit">🎁 Unlock</button>
+  </form>
+  <div class="err" id="err"></div>
+  <div class="hint">Hint: she rules 👑</div>
+</div>
+<script>
+const BLOB_B64 = "__BLOB__";
+const ITER = 200000;
+
+async function decrypt(password) {
+  const blob = Uint8Array.from(atob(BLOB_B64), c => c.charCodeAt(0));
+  const salt = blob.slice(0, 16);
+  const iv   = blob.slice(16, 28);
+  const tag  = blob.slice(28, 44);
+  const ct   = blob.slice(44);
+  // Web Crypto expects ciphertext || tag for GCM
+  const full = new Uint8Array(ct.length + tag.length);
+  full.set(ct); full.set(tag, ct.length);
+
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: ITER, hash: 'SHA-256' },
+    km,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, full);
+  return new TextDecoder().decode(plain);
+}
+
+const form = document.getElementById('form');
+const err  = document.getElementById('err');
+const pw   = document.getElementById('pw');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  err.textContent = '';
+  const btn = form.querySelector('button');
+  btn.textContent = '🔓 Unlocking…';
+  btn.disabled = true;
+  try {
+    const html = await decrypt(pw.value);
+    document.open();
+    document.write(html);
+    document.close();
+  } catch {
+    err.textContent = '❌ Wrong password — try again!';
+    btn.textContent = '🎁 Unlock';
+    btn.disabled = false;
+    pw.select();
+  }
+});
+</script>
+</body>
+</html>
