@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Happy Birthday Ophil! 🎂</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: linear-gradient(180deg, #1a0033 0%, #4b0082 60%, #8a2be2 100%);
+    font-family: 'Comic Sans MS', 'Trebuchet MS', sans-serif;
+    color: #fff;
+    overflow: hidden;
+  }
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+  }
+  h1 {
+    margin: 8px 0;
+    font-size: 28px;
+    text-shadow: 0 0 12px #ff69b4;
+  }
+  #hud {
+    margin-bottom: 8px;
+    font-size: 18px;
+  }
+  canvas {
+    background: linear-gradient(180deg, #2d1b69 0%, #11052c 100%);
+    border: 4px solid #ff69b4;
+    border-radius: 12px;
+    box-shadow: 0 0 30px rgba(255, 105, 180, 0.6);
+  }
+  #help {
+    margin-top: 10px;
+    font-size: 14px;
+    opacity: 0.85;
+  }
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    text-align: center;
+    z-index: 10;
+  }
+  #overlay h2 {
+    font-size: 48px;
+    margin: 0 0 12px;
+    background: linear-gradient(90deg, #ff69b4, #ffd700, #ff69b4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: pulse 1.5s infinite;
+  }
+  #overlay p { font-size: 22px; max-width: 600px; padding: 0 20px; }
+  #overlay button {
+    margin-top: 18px;
+    padding: 12px 28px;
+    font-size: 18px;
+    border: none;
+    border-radius: 8px;
+    background: #ff69b4;
+    color: #fff;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  #overlay button:hover { background: #ff85c2; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>🎂 Ophil's Birthday Adventure 🎉</h1>
+  <div id="hud">Candles: <span id="score">0</span> / <span id="total">0</span> &nbsp; • &nbsp; Lives: <span id="lives">3</span> &nbsp; • &nbsp; <span id="surfhud" style="opacity:0">🏄 SURFING! <span id="surftime">0</span>s</span></div>
+  <canvas id="game" width="900" height="520"></canvas>
+  <div id="help">← → or A/D to move &nbsp;•&nbsp; Space / ↑ to jump &nbsp;•&nbsp; Grab 🏄 for surf mode (zoom + big jumps!) &nbsp;•&nbsp; Collect 🕯️ then reach the 🎂</div>
+</div>
+
+<div id="overlay">
+  <h2 id="overlay-title">🎉 Happy Birthday Ophil! 🎉</h2>
+  <p id="overlay-msg">You made it to the cake! Wishing you the best year ever. 💖</p>
+  <button onclick="restart()">Play Again</button>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const scoreEl = document.getElementById('score');
+const totalEl = document.getElementById('total');
+const livesEl = document.getElementById('lives');
+const surfHudEl = document.getElementById('surfhud');
+const surfTimeEl = document.getElementById('surftime');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlay-title');
+const overlayMsg = document.getElementById('overlay-msg');
+
+const GRAVITY = 0.6;
+const JUMP = -13;
+const MOVE = 4.5;
+
+// Level: platforms [x, y, w, h]
+const platforms = [
+  [0, 490, 900, 30],          // ground
+  [150, 410, 110, 16],
+  [320, 350, 110, 16],
+  [490, 290, 110, 16],
+  [320, 220, 110, 16],
+  [150, 160, 110, 16],
+  [610, 380, 120, 16],
+  [780, 310, 100, 16],
+  [620, 230, 100, 16],
+  [430, 130, 140, 16],
+  [40, 300, 90, 16],
+];
+
+// Candles to collect
+let candles = [
+  {x: 195, y: 380, taken: false},
+  {x: 365, y: 320, taken: false},
+  {x: 535, y: 260, taken: false},
+  {x: 365, y: 190, taken: false},
+  {x: 195, y: 130, taken: false},
+  {x: 655, y: 350, taken: false},
+  {x: 815, y: 280, taken: false},
+  {x: 670, y: 200, taken: false},
+  {x: 495, y: 100, taken: false},
+  {x: 70, y: 270, taken: false},
+];
+
+// Moving "balloons" (obstacles)
+const balloons = [
+  {x: 300, y: 250, range: 200, speed: 1.5, dir: 1, baseX: 300},
+  {x: 600, y: 150, range: 180, speed: 1.2, dir: -1, baseX: 600},
+  {x: 200, y: 80,  range: 250, speed: 1.8, dir: 1, baseX: 200},
+];
+
+// Surfboard pickups
+let surfboards = [
+  {x: 720, y: 360, taken: false},
+  {x: 50,  y: 280, taken: false},
+];
+
+// Cake (goal)
+const cake = {x: 490, y: 90, w: 36, h: 36};
+
+const player = {
+  x: 30, y: 440, w: 26, h: 36,
+  vx: 0, vy: 0,
+  onGround: false,
+  facing: 1,
+  invuln: 0,
+  surfTimer: 0, // frames remaining of surf mode
+};
+
+let lives = 3;
+let score = 0;
+let gameState = 'play'; // 'play' | 'win' | 'lose'
+
+totalEl.textContent = candles.length;
+
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function resetPlayer() {
+  player.x = 30; player.y = 440;
+  player.vx = 0; player.vy = 0;
+  player.invuln = 90;
+}
+
+function update() {
+  if (gameState !== 'play') return;
+
+  // input — surf mode boosts speed and jump
+  const surfing = player.surfTimer > 0;
+  const moveSpeed = surfing ? MOVE * 1.7 : MOVE;
+  const jumpPower = surfing ? JUMP * 1.25 : JUMP;
+  let moving = false;
+  if (keys['arrowleft'] || keys['a']) { player.vx = -moveSpeed; player.facing = -1; moving = true; }
+  if (keys['arrowright'] || keys['d']) { player.vx = moveSpeed; player.facing = 1; moving = true; }
+  if (!moving) player.vx = 0;
+  if ((keys[' '] || keys['arrowup'] || keys['w']) && player.onGround) {
+    player.vy = jumpPower;
+    player.onGround = false;
+  }
+  if (player.surfTimer > 0) {
+    player.surfTimer--;
+    surfHudEl.style.opacity = '1';
+    surfTimeEl.textContent = Math.ceil(player.surfTimer / 60);
+  } else {
+    surfHudEl.style.opacity = '0';
+  }
+
+  // gravity
+  player.vy += GRAVITY;
+  if (player.vy > 14) player.vy = 14;
+
+  // horizontal move + collide
+  player.x += player.vx;
+  if (player.x < 0) player.x = 0;
+  if (player.x + player.w > W) player.x = W - player.w;
+  for (const [px, py, pw, ph] of platforms) {
+    const p = {x: px, y: py, w: pw, h: ph};
+    if (rectsOverlap(player, p)) {
+      if (player.vx > 0) player.x = p.x - player.w;
+      else if (player.vx < 0) player.x = p.x + p.w;
+    }
+  }
+
+  // vertical move + collide
+  player.y += player.vy;
+  player.onGround = false;
+  for (const [px, py, pw, ph] of platforms) {
+    const p = {x: px, y: py, w: pw, h: ph};
+    if (rectsOverlap(player, p)) {
+      if (player.vy > 0) {
+        player.y = p.y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+      } else if (player.vy < 0) {
+        player.y = p.y + p.h;
+        player.vy = 0;
+      }
+    }
+  }
+
+  if (player.y > H + 100) {
+    loseLife();
+  }
+
+  // candles
+  for (const c of candles) {
+    if (c.taken) continue;
+    const cb = {x: c.x - 8, y: c.y - 18, w: 16, h: 22};
+    if (rectsOverlap(player, cb)) {
+      c.taken = true;
+      score++;
+      scoreEl.textContent = score;
+    }
+  }
+
+  // surfboards
+  for (const s of surfboards) {
+    if (s.taken) continue;
+    const sb = {x: s.x - 16, y: s.y - 10, w: 32, h: 16};
+    if (rectsOverlap(player, sb)) {
+      s.taken = true;
+      player.surfTimer = 600; // 10 seconds at 60fps
+    }
+  }
+
+  // balloons
+  for (const b of balloons) {
+    b.x += b.speed * b.dir;
+    if (b.x > b.baseX + b.range || b.x < b.baseX - b.range) b.dir *= -1;
+    const bb = {x: b.x - 14, y: b.y - 18, w: 28, h: 32};
+    if (player.invuln <= 0 && rectsOverlap(player, bb)) {
+      loseLife();
+    }
+  }
+  if (player.invuln > 0) player.invuln--;
+
+  // cake (goal)
+  if (score >= candles.length && rectsOverlap(player, cake)) {
+    win();
+  }
+}
+
+function loseLife() {
+  lives--;
+  livesEl.textContent = lives;
+  if (lives <= 0) {
+    gameState = 'lose';
+    overlayTitle.textContent = 'Oh no! 🎈';
+    overlayMsg.textContent = "The balloons got you! Try again — Ophil's cake is waiting.";
+    overlay.style.display = 'flex';
+  } else {
+    resetPlayer();
+  }
+}
+
+function win() {
+  gameState = 'win';
+  overlayTitle.textContent = '🎉 Happy Birthday Ophil! 🎉';
+  overlayMsg.textContent = "You made it to the cake! Wishing you the best year ever. 💖";
+  overlay.style.display = 'flex';
+}
+
+function restart() {
+  candles.forEach(c => c.taken = false);
+  surfboards.forEach(s => s.taken = false);
+  score = 0; lives = 3;
+  scoreEl.textContent = 0;
+  livesEl.textContent = 3;
+  resetPlayer();
+  player.invuln = 0;
+  player.surfTimer = 0;
+  overlay.style.display = 'none';
+  gameState = 'play';
+}
+window.restart = restart;
+
+function drawPlayer() {
+  const blink = player.invuln > 0 && Math.floor(player.invuln / 6) % 2 === 0;
+  if (blink) return;
+  // surfboard under feet during surf mode
+  if (player.surfTimer > 0) {
+    const cx = player.x + player.w/2;
+    const by = player.y + player.h;
+    ctx.save();
+    ctx.translate(cx, by);
+    ctx.rotate(player.vx * 0.04);
+    // board
+    const grad = ctx.createLinearGradient(-22, 0, 22, 0);
+    grad.addColorStop(0, '#00d4ff');
+    grad.addColorStop(1, '#0066ff');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 22, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // stripe
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-18, 0, 36, 1.5);
+    ctx.restore();
+    // splash
+    ctx.fillStyle = 'rgba(0, 200, 255, 0.5)';
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(cx - player.facing * (8 + i*4), by + 4, 2 + i, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // body
+  ctx.fillStyle = '#ffd700';
+  ctx.fillRect(player.x, player.y + 10, player.w, player.h - 10);
+  // head
+  ctx.fillStyle = '#ffe4b5';
+  ctx.beginPath();
+  ctx.arc(player.x + player.w/2, player.y + 8, 10, 0, Math.PI * 2);
+  ctx.fill();
+  // party hat
+  ctx.fillStyle = '#ff1493';
+  ctx.beginPath();
+  ctx.moveTo(player.x + player.w/2 - 8, player.y - 2);
+  ctx.lineTo(player.x + player.w/2 + 8, player.y - 2);
+  ctx.lineTo(player.x + player.w/2, player.y - 16);
+  ctx.closePath();
+  ctx.fill();
+  // pom on hat
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(player.x + player.w/2, player.y - 17, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  // eyes
+  ctx.fillStyle = '#000';
+  ctx.fillRect(player.x + player.w/2 + player.facing*2 - 1, player.y + 5, 2, 3);
+  ctx.fillRect(player.x + player.w/2 + player.facing*5 - 1, player.y + 5, 2, 3);
+}
+
+function drawCandle(c) {
+  if (c.taken) return;
+  // candle body
+  ctx.fillStyle = '#ffb6d9';
+  ctx.fillRect(c.x - 3, c.y - 12, 6, 14);
+  // flame
+  ctx.fillStyle = '#ffd700';
+  ctx.beginPath();
+  ctx.arc(c.x, c.y - 16, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ff4500';
+  ctx.beginPath();
+  ctx.arc(c.x, c.y - 17, 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSurfboard(s) {
+  if (s.taken) return;
+  const bob = Math.sin(Date.now() / 300 + s.x) * 3;
+  ctx.save();
+  ctx.translate(s.x, s.y + bob);
+  // glow
+  ctx.fillStyle = 'rgba(0, 212, 255, 0.3)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 22, 10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // board
+  const grad = ctx.createLinearGradient(-18, 0, 18, 0);
+  grad.addColorStop(0, '#00d4ff');
+  grad.addColorStop(1, '#0066ff');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 18, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // stripe
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(-14, -1, 28, 1.5);
+  ctx.restore();
+}
+
+function drawWaves() {
+  const t = Date.now() / 500;
+  for (let layer = 0; layer < 2; layer++) {
+    ctx.fillStyle = layer === 0 ? 'rgba(0, 150, 255, 0.25)' : 'rgba(0, 200, 255, 0.18)';
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 10) {
+      const y = H - 12 + Math.sin(x / 40 + t + layer) * 4 - layer * 4;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawBalloon(b) {
+  // string
+  ctx.strokeStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(b.x, b.y);
+  ctx.lineTo(b.x, b.y + 18);
+  ctx.stroke();
+  // balloon
+  ctx.fillStyle = '#ff4757';
+  ctx.beginPath();
+  ctx.ellipse(b.x, b.y - 6, 13, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // shine
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.beginPath();
+  ctx.ellipse(b.x - 4, b.y - 10, 3, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCake() {
+  const x = cake.x, y = cake.y;
+  // plate
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x - 4, y + cake.h - 4, cake.w + 8, 4);
+  // cake base
+  ctx.fillStyle = '#ff69b4';
+  ctx.fillRect(x, y + 14, cake.w, cake.h - 14);
+  // frosting
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(x, y + 10, cake.w, 6);
+  // candle
+  ctx.fillStyle = '#fffacd';
+  ctx.fillRect(x + cake.w/2 - 2, y - 2, 4, 14);
+  // flame
+  ctx.fillStyle = '#ffd700';
+  ctx.beginPath();
+  ctx.arc(x + cake.w/2, y - 5, 4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPlatform(px, py, pw, ph) {
+  ctx.fillStyle = '#ff69b4';
+  ctx.fillRect(px, py, pw, ph);
+  // top highlight
+  ctx.fillStyle = '#ffb6d9';
+  ctx.fillRect(px, py, pw, 3);
+}
+
+// background stars
+const stars = Array.from({length: 60}, () => ({
+  x: Math.random() * W,
+  y: Math.random() * H * 0.7,
+  r: Math.random() * 1.5 + 0.3,
+  tw: Math.random() * Math.PI * 2,
+}));
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  // stars
+  for (const s of stars) {
+    s.tw += 0.04;
+    ctx.fillStyle = `rgba(255,255,255,${0.5 + 0.4 * Math.sin(s.tw)})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // ocean waves at the very bottom (decorative)
+  drawWaves();
+  // platforms
+  for (const [px, py, pw, ph] of platforms) drawPlatform(px, py, pw, ph);
+  // candles
+  for (const c of candles) drawCandle(c);
+  // surfboards
+  for (const s of surfboards) drawSurfboard(s);
+  // balloons
+  for (const b of balloons) drawBalloon(b);
+  // cake
+  drawCake();
+  // glow around cake if reachable
+  if (score >= candles.length) {
+    ctx.strokeStyle = `rgba(255,215,0,${0.4 + 0.3 * Math.sin(Date.now()/200)})`;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(cake.x - 6, cake.y - 12, cake.w + 12, cake.h + 18);
+  }
+  // player
+  drawPlayer();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
